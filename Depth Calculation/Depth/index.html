@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Depth Estimation</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        #container {
+            position: relative;
+            width: 100%;
+            height: auto;
+            text-align: center;
+        }
+
+        #video, #output, #depthInfo {
+            display: block;
+            margin: auto;
+        }
+
+        #video {
+            width: 320px; /* Shorter width */
+            height: 240px; /* Shorter height */
+        }
+
+        #output {
+            width: 320px; /* Shorter width */
+            height: 240px; /* Shorter height */
+        }
+
+        #depthInfo {
+            font-size: 18px;
+            font-weight: bold;
+            color: blue;
+            margin-top: 10px;
+        }
+
+        @media only screen and (max-width: 600px) {
+            #depthInfo {
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="container" style="border: 2px solid red;">
+        <h1> Depth Calculation</h1>
+        <video id="video" autoplay></video>
+        <canvas id="output"></canvas>
+        <div id="depthInfo">Depth: </div>
+        <button id="toggleSpeech">Toggle Speech</button> <!-- Button to toggle speech synthesis -->
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('output');
+        const depthInfo = document.getElementById('depthInfo');
+        const toggleSpeechButton = document.getElementById('toggleSpeech');
+        const ctx = canvas.getContext('2d');
+        let prevFrame = null;
+        let speechEnabled = false;
+        let lastSpeechTime = 0;
+
+        // Request access to the camera
+        async function setupCamera() {
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                return new Promise(resolve => {
+                    video.onloadedmetadata = () => {
+                        resolve(video);
+                    };
+                });
+            } else {
+                alert('Camera access denied.');
+            }
+        }
+
+        // Function to calculate depth using Global Block Matching
+        function calculateDepth(currentFrame, prevFrame) {
+            if (!prevFrame) return null; // Return null if there's no previous frame
+            const { width, height } = currentFrame;
+            const depthMap = new Float32Array(width * height); // Use Float32Array to prevent overflow
+
+            // Global Block Matching Algorithm (Simplest version)
+            for (let i = 0; i < height; i++) {
+                for (let j = 0; j < width; j++) {
+                    const idx = i * width + j;
+                    const currPixel = currentFrame.data.slice(idx * 4, idx * 4 + 3); // Extract RGB values
+                    const prevPixel = prevFrame.data.slice(idx * 4, idx * 4 + 3);
+                    const diff = Math.abs(currPixel[0] - prevPixel[0]); // Compute difference
+                    depthMap[idx] = diff;
+                }
+            }
+            return depthMap;
+        }
+
+        // Function to render depth map in RGB format and display depth information
+        function renderDepth(depthMap) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const imageData = ctx.createImageData(canvas.width, canvas.height);
+            for (let i = 0; i < depthMap.length; i++) {
+                const pixelValue = depthMap[i];
+                const color = getColorFromDepth(pixelValue); // Get RGB color based on depth
+                imageData.data[i * 4] = color[0];
+                imageData.data[i * 4 + 1] = color[1];
+                imageData.data[i * 4 + 2] = color[2];
+                imageData.data[i * 4 + 3] = 255;
+            }
+            ctx.putImageData(imageData, 0, 0);
+
+            // Display depth information (e.g., average depth)
+            const averageDepth = (depthMap.reduce((acc, val) => acc + val, 0) / depthMap.length).toFixed(2);
+            depthInfo.textContent = `Depth: ${averageDepth}`;
+
+            // Enable speech synthesis every 2 seconds
+            if (speechEnabled && Date.now() - lastSpeechTime >= 2000) {
+                speakDepth(averageDepth);
+                lastSpeechTime = Date.now();
+            }
+        }
+
+        // Function to get RGB color based on depth
+        function getColorFromDepth(depth) {
+            // Example: Assigning colors based on depth ranges
+            if (depth < 50) {
+                // Near objects, e.g., Red
+                return [255, 0, 0];
+            } else if (depth < 100) {
+                // Intermediate depth, e.g., Green
+                return [0, 255, 0];
+            } else {
+                // Far objects, e.g., Blue
+                return [0, 0, 255];
+            }
+        }
+
+        // Function to speak depth information
+        function speakDepth(depth) {
+            const message = `The depth is ${depth} units.`;
+            const speech = new SpeechSynthesisUtterance(message);
+            window.speechSynthesis.speak(speech);
+        }
+
+        // Toggle speech synthesis
+        toggleSpeechButton.addEventListener('click', () => {
+            speechEnabled = !speechEnabled;
+            if (speechEnabled) {
+                toggleSpeechButton.textContent = 'Disable Speech';
+            } else {
+                toggleSpeechButton.textContent = 'Enable Speech';
+            }
+        });
+
+        // Function to process each frame
+        function processFrame() {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+            // Calculate depth map and render
+            const depthMap = calculateDepth(currentFrame, prevFrame);
+            if (depthMap) {
+                renderDepth(depthMap);
+            }
+            prevFrame = currentFrame;
+
+            requestAnimationFrame(processFrame);
+        }
+
+        // Start the camera and processing
+        async function start() {
+            const videoElement = await setupCamera();
+            videoElement.play();
+            canvas.width = videoElement.videoWidth;
+            canvas.height = videoElement.videoHeight;
+            requestAnimationFrame(processFrame);
+        }
+
+        // Start the application
+        start();
+    </script>
+</body>
+</html>
